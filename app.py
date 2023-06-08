@@ -1,78 +1,47 @@
-from flask import Flask, request, jsonify,render_template
+from crypt import methods
+from flask import Flask,render_template,request,jsonify
 import pickle
-from surprise import BaselineOnly
-from surprise import Dataset
-from surprise.reader import Reader
 import pandas as pd
-import argparse
-# parser = argparse.ArgumentParser()
-# parser.add_argument('--my_variable', type=str, default='default_value')
-# args = parser.parse_args()
+from datetime import date
 
+print(pd.__version__)
 
-# Loading the Data
+file=pickle.load(open('model/groupByMarket.pkl','rb'))
+data_merged=pd.read_csv('df_merged.csv')
 app=Flask(__name__)
-@app.route('/recommend')
-def recommend_ui():
-    return render_template('form.html')
-# app.config['MY_VARIABLE'] = args.my_variable
-@app.route('/recommend_items',methods=['POST'])
-def recommendation():
-    # my_variable = app.config['MY_VARIABLE']
-    
-    customerid = request.form.get('customerid')
-    categroy = request.form.get('category')
-    df_merged=pd.read_csv('df_merged.csv')
-    final_df=pd.read_csv('final_df.csv')
-    df=final_df.iloc[0:2000]
 
-    reader = Reader()
-    ratings = Dataset.load_from_df(df[['customerid', 'id', 'avgrating']], reader)
+@app.route('/bestpick_item',methods=['POST'])    
+def best_pick():
+    #return ("rashi")
+    data = request.form['data']
+    filtered_data = file.get_group(data)
+    # #top_20_items = sorted(filtered_data, key=lambda x: x['avgRating'], reverse=True)[:20]
+    # #top_20_items = pd.DataFrame(top_20_items)
+    # #top_20_items.drop_duplicates('item_name',inplace=True)
+    top_20_items = filtered_data.sort_values(by='avgrating', ascending=False)[:21]
+    top_20_items = top_20_items.drop_duplicates('item_name',inplace=True)
+    json_data = top_20_items.to_json(orient='records')
+    # print(json_data)
+    return(json_data)
 
-    # Load pre-trained model
-    with open('baseline_model.pkl', 'rb') as f:
-        model = pickle.load(f)
-
-    # Set up Flask app
-
-
-        # Define function to return recommendations
-
-        # Get recommendations for specified user ID
-    testset = ratings.build_full_trainset().build_anti_testset()
-    predictions = model.test(testset)
-
-    def get_top_n_recommendations(customerid,predictions, n=20):
-        predict_ratings = {}
-        # loop for getting predictions for the user
-        for uid, iid, true_r, est, _ in predictions:
-            if (uid==customerid):
-                predict_ratings[iid] = est
-        predict_ratings = sorted(predict_ratings.items(), key=lambda kv: kv[1],reverse=True)[:n]
-        top_items = [i[0] for i in predict_ratings]
-        # print(top_items)
-        # top_items = [str(i) for i in top_items]
-        # print("="*10,"Recommended movies for user {} :".format(customerid),"="*10)
-        # print(df_merged[df_merged["id"].isin(top_items)][["item_name","market","price","avgrating"]].to_string(index=False))
-        top_item= df_merged[df_merged["id"].isin(top_items)][["item_name","market","price","avgrating"]].sort_values(by=['avgrating'],ascending=False)
-        return top_item
-    top_n = get_top_n_recommendations(customerid,predictions)
-
-    g1=top_n.groupby('market')
-
-    def best_pick(item):
-        df_item=g1.get_group(item)
-        final_item=df_item[['avgrating','item_name','price',]]
-        best_pick_item=final_item.sort_values(by='avgrating',ascending=False)
-        best_pick_item.drop_duplicates('item_name',inplace=True)
-        return best_pick_item.head()
-    
-    best_items=best_pick(categroy)
-    data_dict = best_items.to_dict()
-    return data_dict
-    #print(data_dict)
+@app.route('/new_arrival',methods=['GET'])    
+def new_arrival():
+    # col=data_merged.columns
+    # return col
+    data_merged.drop('Unnamed: 0',axis=1)
+    final_df=data_merged.dropna(subset=['createdat'])
+    today1=date.today()
+    today1=pd.to_datetime(today1)
+    print(type(today1))
+    final_df['latest']=today1-(pd.to_datetime(final_df.createdat))
+    new_items=final_df[["id","item_name","market","price","avgrating",'id','images','dealprice','type','discount','discountpercent','latest']].sort_values(by=['latest'],ascending=True)[:5]
+    new_items['latest'] = new_items['latest'].dt.days.astype('int16')
+    dict_data = new_items.to_dict()
+    return dict_data
+  	
+if __name__ == '__main__':
+    app.run(debug=True)
 
 
 
-if __name__=="__main__":
-    app.run(port=2022, debug=True)
+
